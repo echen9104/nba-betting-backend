@@ -1,0 +1,23 @@
+# .gitignore
+
+# Node.js dependencies
+/node_modules/
+
+# Python dependencies
+/__pycache__/
+/venv/
+/*.pyc
+
+# Environment variables
+.env
+
+# IDE files
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
