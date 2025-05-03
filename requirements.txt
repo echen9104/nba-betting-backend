@@ -1,3 +1,4 @@
 flask
 nba_api
-flask-cors 
+flask-cors
+flask-restx 

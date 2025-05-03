@@ -1,24 +1,50 @@
 from flask import Flask, jsonify
+from flask_restx import Api, Resource, fields
 from nba_api.stats.endpoints import ScoreboardV2
 from datetime import datetime
 
 app = Flask(__name__)
+api = Api(app, version='1.0', title='NBA API',
+          description='A simple API for NBA data',
+          doc='/swagger')
 
-@app.route('/games/today', methods=['GET'])
-def get_today_games():
-    try:
-        today_str = datetime.now().strftime('%m/%d/%Y')
-        scoreboard = ScoreboardV2(game_date=today_str)
-        data = scoreboard.get_normalized_dict()
-        
-        print(data)
+# Define models for Swagger documentation
+game_model = api.model('Game', {
+    'game_date': fields.String(description='Date of the game'),
+    'game_status': fields.String(description='Current status of the game'),
+    'home_team': fields.Nested(api.model('Team', {
+        'id': fields.Integer(description='Team ID'),
+        'abbreviation': fields.String(description='Team abbreviation'),
+        'arena': fields.String(description='Arena name')
+    })),
+    'visitor_team': fields.Nested(api.model('Team', {
+        'id': fields.Integer(description='Team ID'),
+        'abbreviation': fields.String(description='Team abbreviation')
+    })),
+    'live_period': fields.String(description='Current period of the game'),
+    'live_period_time_bcast': fields.String(description='Time remaining in the current period')
+})
 
-        extracted_data = extract_game_data(data)
+@api.route('/games/today')
+class TodayGames(Resource):
+    @api.doc('get_today_games')
+    @api.response(200, 'Success', game_model)
+    @api.response(500, 'Internal Server Error')
+    def get(self):
+        """Get today's NBA games"""
+        try:
+            today_str = datetime.now().strftime('%m/%d/%Y')
+            scoreboard = ScoreboardV2(game_date=today_str)
+            data = scoreboard.get_normalized_dict()
+            
+            print(data)
 
-        return jsonify({'date': today_str, 'games': extracted_data})
+            extracted_data = extract_game_data(data)
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            return {'date': today_str, 'games': extracted_data}
+
+        except Exception as e:
+            return {'error': str(e)}, 500
 
 def extract_game_data(data):
     game_data = []
