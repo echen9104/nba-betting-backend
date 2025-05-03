@@ -6,8 +6,9 @@ def create_app():
     CORS(app)  # Enable CORS for all routes
     
     # Register blueprints
-    from app.routes import games_bp, players_bp
+    from app.routes import games_bp, players_bp, teams_bp
     app.register_blueprint(games_bp)
     app.register_blueprint(players_bp)
+    app.register_blueprint(teams_bp)
     
     return app 

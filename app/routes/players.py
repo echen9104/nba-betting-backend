@@ -15,11 +15,6 @@ def search_players():
         all_players = CommonAllPlayers()
         data = all_players.get_normalized_dict()
         
-        # Print the first player to see the structure
-        if data['CommonAllPlayers']:
-            print("Sample player data:", data['CommonAllPlayers'][0])
-            print("Available fields:", data['CommonAllPlayers'][0].keys())
-        
         # Filter players by name
         matching_players = [
             player for player in data['CommonAllPlayers']
