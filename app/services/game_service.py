@@ -1,6 +1,6 @@
 from datetime import datetime
 from nba_api.stats.endpoints import ScoreboardV2
-from app.utils.nba_api import extract_game_data
+from app.utils.games_util import extract_game_data
 
 
 def get_today_games():
