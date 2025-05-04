@@ -1,4 +1,5 @@
 flask
 nba_api
 flask-cors
-flask-restx 
+flask-restx
+black 
