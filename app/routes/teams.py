@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_restx import Resource, Namespace
 from nba_api.stats.endpoints import TeamGameLogs
-from nba_api.stats.library.parameters import SeasonAll
+from nba_api.stats.library.parameters import SeasonAll, SeasonType
 from app.models.teams_model import api, game_log_model, team_games_response
 
 teams_bp = Blueprint("teams", __name__)
@@ -10,7 +10,10 @@ teams_bp = Blueprint("teams", __name__)
 class TeamGames(Resource):
     @api.doc(
         "get_team_games",
-        params={"season": "NBA season (e.g., 2023-24). Defaults to current season."},
+        params={
+            "season": "NBA season (e.g., 2023-24). Defaults to current season.",
+            "season_type": "Type of games to fetch (Regular Season, Playoffs, Pre Season, All Star). Defaults to Regular Season."
+        },
     )
     @api.response(200, "Success", team_games_response)
     @api.response(500, "Internal Server Error")
@@ -19,11 +22,13 @@ class TeamGames(Resource):
         try:
             # Get season from query parameter, default to current season
             season = request.args.get("season", SeasonAll.current_season)
+            season_type = request.args.get("season_type", "Regular Season")
             
-            # Get team's game logs for the specified season
+            # Get team's game logs for the specified season and season type
             team_logs = TeamGameLogs(
                 team_id_nullable=team_id,
-                season_nullable=season
+                season_nullable=season,
+                season_type_nullable=season_type
             )
             
             # Get the data as a dictionary
@@ -64,6 +69,7 @@ class TeamGames(Resource):
             return {
                 "team_id": team_id,
                 "season": season,
+                "season_type": season_type,
                 "games_played": len(games),
                 "games": games
             }
