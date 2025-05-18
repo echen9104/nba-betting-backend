@@ -7,6 +7,9 @@ import re
 import logging
 import traceback
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +28,99 @@ TEAM_ABBREVIATIONS = {
     'POR': 1610612757, 'SAC': 1610612758, 'SAS': 1610612759, 'TOR': 1610612761,
     'UTA': 1610612762, 'WAS': 1610612764
 }
+
+# Cache for team game logs
+@lru_cache(maxsize=128)
+def get_cached_team_logs(team_id, season, season_type):
+    """Get cached team game logs"""
+    return TeamGameLogs(
+        team_id_nullable=team_id,
+        season_nullable=season,
+        season_type_nullable=season_type
+    ).get_normalized_dict()
+
+# Cache for box scores
+@lru_cache(maxsize=256)
+def get_cached_box_score(game_id):
+    """Get cached box score data"""
+    return BoxScoreTraditionalV2(game_id=game_id).get_normalized_dict()
+
+def process_game(game, team1_id, team2_id, season_type):
+    """Process a single game and return its data"""
+    try:
+        game_id = game["GAME_ID"]
+        logger.info(f"Processing game {game_id}")
+        
+        # Get box score data from cache
+        box_score_data = get_cached_box_score(game_id)
+        
+        # Get stats for both teams
+        team1_stats = None
+        team2_stats = None
+        for team in box_score_data["TeamStats"]:
+            if team["TEAM_ID"] == team1_id:
+                team1_stats = {
+                    "points": team["PTS"],
+                    "field_goals_made": team["FGM"],
+                    "field_goals_attempted": team["FGA"],
+                    "field_goal_percentage": team["FG_PCT"],
+                    "three_pointers_made": team["FG3M"],
+                    "three_pointers_attempted": team["FG3A"],
+                    "three_point_percentage": team["FG3_PCT"],
+                    "free_throws_made": team["FTM"],
+                    "free_throws_attempted": team["FTA"],
+                    "free_throw_percentage": team["FT_PCT"],
+                    "offensive_rebounds": team["OREB"],
+                    "defensive_rebounds": team["DREB"],
+                    "total_rebounds": team["REB"],
+                    "assists": team["AST"],
+                    "turnovers": team.get("TOV", 0),
+                    "steals": team.get("STL", 0),
+                    "blocks": team.get("BLK", 0),
+                    "blocks_against": team.get("BLKA", 0),
+                    "personal_fouls": team.get("PF", 0),
+                    "personal_fouls_drawn": team.get("PFD", 0),
+                    "plus_minus": team.get("PLUS_MINUS", 0)
+                }
+            elif team["TEAM_ID"] == team2_id:
+                team2_stats = {
+                    "points": team["PTS"],
+                    "field_goals_made": team["FGM"],
+                    "field_goals_attempted": team["FGA"],
+                    "field_goal_percentage": team["FG_PCT"],
+                    "three_pointers_made": team["FG3M"],
+                    "three_pointers_attempted": team["FG3A"],
+                    "three_point_percentage": team["FG3_PCT"],
+                    "free_throws_made": team["FTM"],
+                    "free_throws_attempted": team["FTA"],
+                    "free_throw_percentage": team["FT_PCT"],
+                    "offensive_rebounds": team["OREB"],
+                    "defensive_rebounds": team["DREB"],
+                    "total_rebounds": team["REB"],
+                    "assists": team["AST"],
+                    "turnovers": team.get("TOV", 0),
+                    "steals": team.get("STL", 0),
+                    "blocks": team.get("BLK", 0),
+                    "blocks_against": team.get("BLKA", 0),
+                    "personal_fouls": team.get("PF", 0),
+                    "personal_fouls_drawn": team.get("PFD", 0),
+                    "plus_minus": team.get("PLUS_MINUS", 0)
+                }
+        
+        if team1_stats and team2_stats:
+            return {
+                "game_id": game["GAME_ID"],
+                "game_date": game["GAME_DATE"],
+                "matchup": game["MATCHUP"],
+                "result": game["WL"],
+                "team1_stats": team1_stats,
+                "team2_stats": team2_stats,
+                "season_type": season_type
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error processing game {game.get('GAME_ID', 'unknown')}: {str(e)}")
+        return None
 
 @api.route("/<int:team_id>/games")
 class TeamGames(Resource):
@@ -153,115 +249,31 @@ class TeamMatchups(Resource):
                 season_type = season_type.strip()
                 try:
                     logger.info(f"Fetching {season_type} games for {team1}")
-                    # Get team1's games
-                    team1_logs = TeamGameLogs(
-                        team_id_nullable=team1_id,
-                        season_nullable=season,
-                        season_type_nullable=season_type
-                    )
-                    team1_data = team1_logs.get_normalized_dict()
+                    # Get team1's games from cache
+                    team1_data = get_cached_team_logs(team1_id, season, season_type)
                     logger.info(f"Found {len(team1_data['TeamGameLogs'])} total games for {team1} in {season_type}")
                     
                     # Filter for games against team2
-                    matchup_games = 0
+                    matchup_games = []
                     for game in team1_data["TeamGameLogs"]:
-                        # Extract opponent from matchup string (e.g., "BOS vs. NYK" or "BOS @ NYK")
                         matchup = game["MATCHUP"]
-                        logger.info(f"Checking matchup: {matchup}")
                         if team2 in matchup:
-                            matchup_games += 1
-                            logger.info(f"Found matchup game: {matchup}")
-                            try:
-                                # Get box score for the game
-                                game_id = game["GAME_ID"]
-                                logger.info(f"Fetching box score for game {game_id}")
-                                
-                                # Add a delay to avoid rate limiting
-                                time.sleep(1)
-                                
-                                # Get box score data
-                                box_score = BoxScoreTraditionalV2(game_id=game_id)
-                                box_score_data = box_score.get_normalized_dict()
-                                logger.info(f"Box score data keys: {box_score_data.keys()}")
-                                
-                                # Log the first team's stats structure for debugging
-                                if box_score_data["TeamStats"]:
-                                    logger.info(f"First team stats keys: {box_score_data['TeamStats'][0].keys()}")
-                                
-                                # Get stats for both teams
-                                team1_stats = None
-                                team2_stats = None
-                                for team in box_score_data["TeamStats"]:
-                                    if team["TEAM_ID"] == team1_id:
-                                        team1_stats = {
-                                            "points": team["PTS"],
-                                            "field_goals_made": team["FGM"],
-                                            "field_goals_attempted": team["FGA"],
-                                            "field_goal_percentage": team["FG_PCT"],
-                                            "three_pointers_made": team["FG3M"],
-                                            "three_pointers_attempted": team["FG3A"],
-                                            "three_point_percentage": team["FG3_PCT"],
-                                            "free_throws_made": team["FTM"],
-                                            "free_throws_attempted": team["FTA"],
-                                            "free_throw_percentage": team["FT_PCT"],
-                                            "offensive_rebounds": team["OREB"],
-                                            "defensive_rebounds": team["DREB"],
-                                            "total_rebounds": team["REB"],
-                                            "assists": team["AST"],
-                                            "turnovers": team.get("TOV", 0),  # Use get() with default value
-                                            "steals": team.get("STL", 0),
-                                            "blocks": team.get("BLK", 0),
-                                            "blocks_against": team.get("BLKA", 0),
-                                            "personal_fouls": team.get("PF", 0),
-                                            "personal_fouls_drawn": team.get("PFD", 0),
-                                            "plus_minus": team.get("PLUS_MINUS", 0)
-                                        }
-                                        logger.info(f"Found stats for {team1}")
-                                    elif team["TEAM_ID"] == team2_id:
-                                        team2_stats = {
-                                            "points": team["PTS"],
-                                            "field_goals_made": team["FGM"],
-                                            "field_goals_attempted": team["FGA"],
-                                            "field_goal_percentage": team["FG_PCT"],
-                                            "three_pointers_made": team["FG3M"],
-                                            "three_pointers_attempted": team["FG3A"],
-                                            "three_point_percentage": team["FG3_PCT"],
-                                            "free_throws_made": team["FTM"],
-                                            "free_throws_attempted": team["FTA"],
-                                            "free_throw_percentage": team["FT_PCT"],
-                                            "offensive_rebounds": team["OREB"],
-                                            "defensive_rebounds": team["DREB"],
-                                            "total_rebounds": team["REB"],
-                                            "assists": team["AST"],
-                                            "turnovers": team.get("TOV", 0),  # Use get() with default value
-                                            "steals": team.get("STL", 0),
-                                            "blocks": team.get("BLK", 0),
-                                            "blocks_against": team.get("BLKA", 0),
-                                            "personal_fouls": team.get("PF", 0),
-                                            "personal_fouls_drawn": team.get("PFD", 0),
-                                            "plus_minus": team.get("PLUS_MINUS", 0)
-                                        }
-                                        logger.info(f"Found stats for {team2}")
-                                
-                                if team1_stats and team2_stats:
-                                    game_data = {
-                                        "game_id": game["GAME_ID"],
-                                        "game_date": game["GAME_DATE"],
-                                        "matchup": game["MATCHUP"],
-                                        "result": game["WL"],
-                                        "team1_stats": team1_stats,
-                                        "team2_stats": team2_stats,
-                                        "season_type": season_type
-                                    }
-                                    all_games.append(game_data)
-                                    logger.info(f"Successfully added game {game['GAME_ID']} to results")
-                                else:
-                                    logger.warning(f"Missing stats for game {game['GAME_ID']}")
-                            except Exception as e:
-                                logger.error(f"Error getting box score for game {game['GAME_ID']}: {str(e)}")
-                                logger.error(f"Traceback: {traceback.format_exc()}")
-                                continue
-                    logger.info(f"Found {matchup_games} matchup games in {season_type}")
+                            matchup_games.append(game)
+                    
+                    logger.info(f"Found {len(matchup_games)} matchup games in {season_type}")
+                    
+                    # Process games in parallel
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        future_to_game = {
+                            executor.submit(process_game, game, team1_id, team2_id, season_type): game 
+                            for game in matchup_games
+                        }
+                        
+                        for future in as_completed(future_to_game):
+                            game_data = future.result()
+                            if game_data:
+                                all_games.append(game_data)
+                    
                 except Exception as e:
                     logger.error(f"Error fetching {season_type} games: {str(e)}")
                     continue
